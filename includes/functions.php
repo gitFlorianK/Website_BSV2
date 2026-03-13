@@ -1,40 +1,37 @@
 <?php
-function isLoggedIn(): bool {
-    return isset($_SESSION['user_id']);
+require_once __DIR__ . '/db.php';
+
+function get_setting(string $key): string {
+    $db = get_db();
+    $stmt = $db->prepare("SELECT value FROM settings WHERE key = :key");
+    $stmt->bindValue(':key', $key, SQLITE3_TEXT);
+    $result = $stmt->execute();
+    $row = $result->fetchArray(SQLITE3_ASSOC);
+    return $row ? $row['value'] : '';
 }
 
-function requireLogin(): void {
-    if (!isLoggedIn()) {
-        header('Location: /admin.php?action=login');
-        exit;
+function get_all_settings(): array {
+    $db = get_db();
+    $result = $db->query("SELECT key, value FROM settings");
+    $settings = [];
+    while ($row = $result->fetchArray(SQLITE3_ASSOC)) {
+        $settings[$row['key']] = $row['value'];
     }
+    return $settings;
 }
 
-function getSetting(string $key, string $default = ''): string {
-    $db = getDB();
-    $stmt = $db->prepare("SELECT value FROM settings WHERE key = ?");
-    $stmt->bindValue(1, $key);
-    $result = $stmt->execute()->fetchArray();
-    return $result ? $result['value'] : $default;
+function get_page(string $slug): ?array {
+    $db = get_db();
+    $stmt = $db->prepare("SELECT * FROM pages WHERE slug = :slug AND is_published = 1");
+    $stmt->bindValue(':slug', $slug, SQLITE3_TEXT);
+    $result = $stmt->execute();
+    $row = $result->fetchArray(SQLITE3_ASSOC);
+    return $row ?: null;
 }
 
-function setSetting(string $key, string $value): void {
-    $db = getDB();
-    $stmt = $db->prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)");
-    $stmt->bindValue(1, $key);
-    $stmt->bindValue(2, $value);
-    $stmt->execute();
-}
-
-function getPages(bool $publishedOnly = true, bool $menuOnly = false): array {
-    $db = getDB();
-    $sql = "SELECT * FROM pages";
-    $conditions = [];
-    if ($publishedOnly) $conditions[] = "is_published = 1";
-    if ($menuOnly) $conditions[] = "show_in_menu = 1";
-    if ($conditions) $sql .= " WHERE " . implode(" AND ", $conditions);
-    $sql .= " ORDER BY menu_order ASC, title ASC";
-    $result = $db->query($sql);
+function get_menu_pages(): array {
+    $db = get_db();
+    $result = $db->query("SELECT id, slug, title, parent_id, menu_order FROM pages WHERE show_in_menu = 1 AND is_published = 1 ORDER BY menu_order ASC");
     $pages = [];
     while ($row = $result->fetchArray(SQLITE3_ASSOC)) {
         $pages[] = $row;
@@ -42,30 +39,36 @@ function getPages(bool $publishedOnly = true, bool $menuOnly = false): array {
     return $pages;
 }
 
-function getPage(string $slug): ?array {
-    $db = getDB();
-    $stmt = $db->prepare("SELECT * FROM pages WHERE slug = ?");
-    $stmt->bindValue(1, $slug);
-    $result = $stmt->execute()->fetchArray(SQLITE3_ASSOC);
-    return $result ?: null;
+function build_menu_tree(array $pages, ?int $parentId = null): array {
+    $tree = [];
+    foreach ($pages as $page) {
+        if ($page['parent_id'] == $parentId) {
+            $children = build_menu_tree($pages, (int)$page['id']);
+            $page['children'] = $children;
+            $tree[] = $page;
+        }
+    }
+    return $tree;
 }
 
-function getPageById(int $id): ?array {
-    $db = getDB();
-    $stmt = $db->prepare("SELECT * FROM pages WHERE id = ?");
-    $stmt->bindValue(1, $id);
-    $result = $stmt->execute()->fetchArray(SQLITE3_ASSOC);
-    return $result ?: null;
+function render_menu(array $tree, string $currentSlug = '', bool $isSubmenu = false): string {
+    $class = $isSubmenu ? 'submenu' : 'nav-menu';
+    $html = '<ul class="' . $class . '">';
+    foreach ($tree as $item) {
+        $active = ($item['slug'] === $currentSlug) ? ' active' : '';
+        $hasChildren = !empty($item['children']);
+        $html .= '<li class="nav-item' . ($hasChildren ? ' has-submenu' : '') . '">';
+        $html .= '<a href="/' . escape($item['slug']) . '" class="nav-link' . $active . '">' . escape($item['title']) . '</a>';
+        if ($hasChildren) {
+            $html .= render_menu($item['children'], $currentSlug, true);
+        }
+        $html .= '</li>';
+    }
+    $html .= '</ul>';
+    return $html;
 }
 
-function slugify(string $text): string {
-    $text = mb_strtolower($text);
-    $text = str_replace(['ä', 'ö', 'ü', 'ß'], ['ae', 'oe', 'ue', 'ss'], $text);
-    $text = preg_replace('/[^a-z0-9]+/', '-', $text);
-    return trim($text, '-');
-}
-
-function resizeImage(string $sourcePath, string $destPath, int $maxWidth, int $maxHeight): bool {
+function resize_image(string $sourcePath, string $destPath, int $maxWidth = MAX_IMAGE_WIDTH, int $maxHeight = MAX_IMAGE_HEIGHT): bool {
     $info = getimagesize($sourcePath);
     if (!$info) return false;
 
@@ -73,126 +76,50 @@ function resizeImage(string $sourcePath, string $destPath, int $maxWidth, int $m
     $origWidth = $info[0];
     $origHeight = $info[1];
 
-    // Only resize if larger than max dimensions
+    // Nur verkleinern, nicht vergrößern
     if ($origWidth <= $maxWidth && $origHeight <= $maxHeight) {
         if ($sourcePath !== $destPath) {
-            copy($sourcePath, $destPath);
+            return copy($sourcePath, $destPath);
         }
         return true;
     }
 
     $ratio = min($maxWidth / $origWidth, $maxHeight / $origHeight);
-    $newWidth = (int)($origWidth * $ratio);
-    $newHeight = (int)($origHeight * $ratio);
+    $newWidth = (int)round($origWidth * $ratio);
+    $newHeight = (int)round($origHeight * $ratio);
 
-    switch ($mime) {
-        case 'image/jpeg':
-            $source = imagecreatefromjpeg($sourcePath);
-            break;
-        case 'image/png':
-            $source = imagecreatefrompng($sourcePath);
-            break;
-        case 'image/gif':
-            $source = imagecreatefromgif($sourcePath);
-            break;
-        case 'image/webp':
-            $source = imagecreatefromwebp($sourcePath);
-            break;
-        default:
-            return false;
-    }
+    $source = match ($mime) {
+        'image/jpeg' => imagecreatefromjpeg($sourcePath),
+        'image/png' => imagecreatefrompng($sourcePath),
+        'image/gif' => imagecreatefromgif($sourcePath),
+        'image/webp' => imagecreatefromwebp($sourcePath),
+        default => false,
+    };
 
     if (!$source) return false;
 
     $dest = imagecreatetruecolor($newWidth, $newHeight);
 
-    // Preserve transparency for PNG/GIF
-    if ($mime === 'image/png' || $mime === 'image/gif') {
+    // Transparenz für PNG und GIF
+    if (in_array($mime, ['image/png', 'image/gif'])) {
         imagealphablending($dest, false);
         imagesavealpha($dest, true);
+        $transparent = imagecolorallocatealpha($dest, 0, 0, 0, 127);
+        imagefilledrectangle($dest, 0, 0, $newWidth, $newHeight, $transparent);
     }
 
     imagecopyresampled($dest, $source, 0, 0, 0, 0, $newWidth, $newHeight, $origWidth, $origHeight);
 
-    switch ($mime) {
-        case 'image/jpeg':
-            $result = imagejpeg($dest, $destPath, 85);
-            break;
-        case 'image/png':
-            $result = imagepng($dest, $destPath);
-            break;
-        case 'image/gif':
-            $result = imagegif($dest, $destPath);
-            break;
-        case 'image/webp':
-            $result = imagewebp($dest, $destPath, 85);
-            break;
-        default:
-            $result = false;
-    }
+    $result = match ($mime) {
+        'image/jpeg' => imagejpeg($dest, $destPath, 85),
+        'image/png' => imagepng($dest, $destPath, 8),
+        'image/gif' => imagegif($dest, $destPath),
+        'image/webp' => imagewebp($dest, $destPath, 85),
+        default => false,
+    };
 
     imagedestroy($source);
     imagedestroy($dest);
 
     return $result;
-}
-
-function uploadImage(array $file): ?array {
-    $allowed = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
-    if (!in_array($file['type'], $allowed)) {
-        return null;
-    }
-
-    $ext = pathinfo($file['name'], PATHINFO_EXTENSION);
-    $filename = uniqid('img_') . '.' . strtolower($ext);
-    $destPath = UPLOAD_DIR . $filename;
-
-    if (!is_dir(UPLOAD_DIR)) {
-        mkdir(UPLOAD_DIR, 0755, true);
-    }
-
-    // Move and resize
-    if (!move_uploaded_file($file['tmp_name'], $destPath)) {
-        return null;
-    }
-
-    resizeImage($destPath, $destPath, MAX_IMAGE_WIDTH, MAX_IMAGE_HEIGHT);
-
-    // Save to DB
-    $db = getDB();
-    $stmt = $db->prepare("INSERT INTO media (filename, original_name, mime_type) VALUES (?, ?, ?)");
-    $stmt->bindValue(1, $filename);
-    $stmt->bindValue(2, $file['name']);
-    $stmt->bindValue(3, $file['type']);
-    $stmt->execute();
-
-    return [
-        'id' => $db->lastInsertRowID(),
-        'filename' => $filename,
-        'url' => '/uploads/' . $filename,
-    ];
-}
-
-function e(string $str): string {
-    return htmlspecialchars($str, ENT_QUOTES, 'UTF-8');
-}
-
-function getMenuTree(): array {
-    $pages = getPages(true, true);
-    $tree = [];
-    $children = [];
-
-    foreach ($pages as $page) {
-        if ($page['parent_id']) {
-            $children[$page['parent_id']][] = $page;
-        } else {
-            $tree[] = $page;
-        }
-    }
-
-    foreach ($tree as &$page) {
-        $page['children'] = $children[$page['id']] ?? [];
-    }
-
-    return $tree;
 }

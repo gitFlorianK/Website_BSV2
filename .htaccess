@@ -1,9 +1,12 @@
 RewriteEngine On
+RewriteBase /
 
-# Protect data directory
-RewriteRule ^data/ - [F,L]
+# Protect sensitive files
+<FilesMatch "\.(db|db-wal|db-shm|log)$">
+    Require all denied
+</FilesMatch>
 
-# If the request is not for an existing file or directory, route to index.php
+# Route all requests through index.php (except existing files/dirs)
 RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d
-RewriteRule ^(?!admin\.php)(.*)$ index.php?page=$1 [QSA,L]
+RewriteRule ^(.*)$ index.php?page=$1 [QSA,L]

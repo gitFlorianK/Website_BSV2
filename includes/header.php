@@ -1,44 +1,39 @@
 <?php
-$menuTree = getMenuTree();
-$currentSlug = $_GET['page'] ?? 'startseite';
-$siteName = getSetting('site_name', 'BSV 1960 Plauen e.V.');
+$settings = get_all_settings();
+$menuPages = get_menu_pages();
+$menuTree = build_menu_tree($menuPages);
+$currentSlug = $currentSlug ?? 'startseite';
 ?>
 <!DOCTYPE html>
 <html lang="de">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?= e($pageTitle ?? $siteName) ?></title>
+    <meta name="description" content="<?= escape($settings['site_name'] ?? 'Bogensportverein') ?>">
+    <title><?= escape($pageTitle ?? $settings['site_name'] ?? 'Bogensportverein') ?></title>
+    <style>
+        :root {
+            --primary: <?= escape($settings['primary_color'] ?? '#2e7d32') ?>;
+            --secondary: <?= escape($settings['secondary_color'] ?? '#1b5e20') ?>;
+            --accent: <?= escape($settings['accent_color'] ?? '#ff8f00') ?>;
+            --bg: <?= escape($settings['bg_color'] ?? '#ffffff') ?>;
+            --text: <?= escape($settings['text_color'] ?? '#333333') ?>;
+        }
+    </style>
     <link rel="stylesheet" href="/assets/css/style.css">
 </head>
 <body>
-<nav class="site-nav">
-    <div class="nav-container">
-        <a href="/" class="nav-brand">
-            <img src="/Logo_Verein_2_FK.JPG" alt="<?= e($siteName) ?>">
-            <span><?= e($siteName) ?></span>
-        </a>
-        <button class="nav-toggle" onclick="document.querySelector('.nav-menu').classList.toggle('open')" aria-label="Menü">&#9776;</button>
-        <ul class="nav-menu">
-            <?php foreach ($menuTree as $item): ?>
-                <?php if ($item['slug'] === 'impressum' || $item['slug'] === 'datenschutz') continue; ?>
-                <li>
-                    <a href="/?page=<?= e($item['slug']) ?>"
-                       class="<?= $currentSlug === $item['slug'] ? 'active' : '' ?>">
-                        <?= e($item['title']) ?>
-                    </a>
-                    <?php if (!empty($item['children'])): ?>
-                    <div class="dropdown">
-                        <?php foreach ($item['children'] as $child): ?>
-                            <a href="/?page=<?= e($child['slug']) ?>"
-                               class="<?= $currentSlug === $child['slug'] ? 'active' : '' ?>">
-                                <?= e($child['title']) ?>
-                            </a>
-                        <?php endforeach; ?>
-                    </div>
-                    <?php endif; ?>
-                </li>
-            <?php endforeach; ?>
-        </ul>
-    </div>
-</nav>
+    <header class="site-header">
+        <div class="header-inner">
+            <a href="/" class="site-logo">
+                <span class="site-name"><?= escape($settings['site_name'] ?? 'Bogensportverein') ?></span>
+            </a>
+            <button class="menu-toggle" aria-label="Menü öffnen" aria-expanded="false">
+                <span class="hamburger"></span>
+            </button>
+            <nav class="main-nav" id="main-nav">
+                <?= render_menu($menuTree, $currentSlug) ?>
+            </nav>
+        </div>
+    </header>
+    <main class="site-main">

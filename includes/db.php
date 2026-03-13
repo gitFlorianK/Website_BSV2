@@ -1,103 +1,111 @@
 <?php
-function getDB(): SQLite3 {
+require_once __DIR__ . '/../config.php';
+
+function get_db(): SQLite3 {
     static $db = null;
     if ($db === null) {
-        $db = new SQLite3(DB_PATH);
-        $db->enableExceptions(true);
-        $db->exec('PRAGMA journal_mode = WAL');
-        $db->exec('PRAGMA foreign_keys = ON');
-        initDB($db);
+        $db = new SQLite3(DB_FILE);
+        $db->busyTimeout(5000);
+        $db->exec('PRAGMA journal_mode=WAL');
+        $db->exec('PRAGMA foreign_keys=ON');
     }
     return $db;
 }
 
-function initDB(SQLite3 $db): void {
-    $db->exec("CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        username TEXT UNIQUE NOT NULL,
-        password TEXT NOT NULL
-    )");
+function init_db(): void {
+    $db = get_db();
 
-    $db->exec("CREATE TABLE IF NOT EXISTS pages (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        slug TEXT UNIQUE NOT NULL,
-        title TEXT NOT NULL,
-        content TEXT DEFAULT '',
-        layout TEXT DEFAULT 'default',
-        menu_order INTEGER DEFAULT 0,
-        parent_id INTEGER DEFAULT NULL,
-        show_in_menu INTEGER DEFAULT 1,
-        is_published INTEGER DEFAULT 1,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (parent_id) REFERENCES pages(id) ON DELETE SET NULL
-    )");
+    $db->exec("
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            password TEXT NOT NULL,
+            role TEXT NOT NULL DEFAULT 'editor',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
 
-    $db->exec("CREATE TABLE IF NOT EXISTS settings (
-        key TEXT PRIMARY KEY,
-        value TEXT
-    )");
+        CREATE TABLE IF NOT EXISTS pages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            slug TEXT UNIQUE NOT NULL,
+            title TEXT NOT NULL,
+            content TEXT DEFAULT '',
+            layout TEXT DEFAULT 'default',
+            menu_order INTEGER DEFAULT 0,
+            parent_id INTEGER DEFAULT NULL,
+            show_in_menu INTEGER DEFAULT 1,
+            is_published INTEGER DEFAULT 1,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (parent_id) REFERENCES pages(id) ON DELETE SET NULL
+        );
 
-    $db->exec("CREATE TABLE IF NOT EXISTS media (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        filename TEXT NOT NULL,
-        original_name TEXT NOT NULL,
-        mime_type TEXT,
-        uploaded_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )");
+        CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY,
+            value TEXT DEFAULT ''
+        );
 
-    // Seed default admin user (admin / admin123 - should be changed)
-    $stmt = $db->prepare("SELECT COUNT(*) as cnt FROM users");
-    $result = $stmt->execute()->fetchArray();
-    if ($result['cnt'] == 0) {
+        CREATE TABLE IF NOT EXISTS media (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            filename TEXT NOT NULL,
+            original_name TEXT NOT NULL,
+            mime_type TEXT NOT NULL,
+            file_size INTEGER DEFAULT 0,
+            uploaded_by INTEGER,
+            uploaded_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (uploaded_by) REFERENCES users(id)
+        );
+    ");
+
+    // Standardbenutzer anlegen falls keiner existiert
+    $result = $db->querySingle("SELECT COUNT(*) FROM users");
+    if ($result == 0) {
         $hash = password_hash('admin123', PASSWORD_DEFAULT);
-        $stmt = $db->prepare("INSERT INTO users (username, password) VALUES (?, ?)");
-        $stmt->bindValue(1, 'admin');
-        $stmt->bindValue(2, $hash);
+        $stmt = $db->prepare("INSERT INTO users (username, password, role) VALUES ('admin', :pw, 'admin')");
+        $stmt->bindValue(':pw', $hash, SQLITE3_TEXT);
         $stmt->execute();
     }
 
-    // Seed default pages
-    $stmt = $db->prepare("SELECT COUNT(*) as cnt FROM pages");
-    $result = $stmt->execute()->fetchArray();
-    if ($result['cnt'] == 0) {
-        $defaultPages = [
-            ['startseite', 'Startseite', '<div class="text-center"><h1>Willkommen beim BSV 1960 Plauen e.V.</h1><p class="lead">Bogensport mit Tradition seit 1960</p></div>', 'hero', 1, null],
-            ['impressum', 'Impressum', '<h2>Impressum</h2><p>Angaben gem&auml;&szlig; &sect; 5 TMG:</p><p><strong>BSV 1960 Plauen e.V.</strong><br>Musterstra&szlig;e 1<br>08523 Plauen</p><p><strong>Vertreten durch:</strong><br>Vorstandsvorsitzende/r: [Name]</p><p><strong>Kontakt:</strong><br>Telefon: [Telefonnummer]<br>E-Mail: [E-Mail-Adresse]</p><p><strong>Registereintrag:</strong><br>Eingetragen im Vereinsregister.<br>Registergericht: Amtsgericht Plauen<br>Registernummer: [VR-Nummer]</p>', 'default', 90, null],
-            ['datenschutz', 'Datenschutzerkl&auml;rung', '<h2>Datenschutzerkl&auml;rung</h2><h3>1. Datenschutz auf einen Blick</h3><h4>Allgemeine Hinweise</h4><p>Die folgenden Hinweise geben einen einfachen &Uuml;berblick dar&uuml;ber, was mit Ihren personenbezogenen Daten passiert, wenn Sie diese Website besuchen. Personenbezogene Daten sind alle Daten, mit denen Sie pers&ouml;nlich identifiziert werden k&ouml;nnen.</p><h4>Datenerfassung auf dieser Website</h4><p><strong>Wer ist verantwortlich f&uuml;r die Datenerfassung auf dieser Website?</strong></p><p>Die Datenverarbeitung auf dieser Website erfolgt durch den Websitebetreiber: BSV 1960 Plauen e.V., Musterstra&szlig;e 1, 08523 Plauen.</p><h3>2. Hosting</h3><p>Diese Website wird bei [Hosting-Anbieter] gehostet. Details entnehmen Sie der Datenschutzerkl&auml;rung des Anbieters.</p><h3>3. Allgemeine Hinweise und Pflichtinformationen</h3><h4>Datenschutz</h4><p>Die Betreiber dieser Seiten nehmen den Schutz Ihrer pers&ouml;nlichen Daten sehr ernst. Wir behandeln Ihre personenbezogenen Daten vertraulich und entsprechend den gesetzlichen Datenschutzvorschriften sowie dieser Datenschutzerkl&auml;rung.</p><p><strong>Hinweis:</strong> Bitte passen Sie diese Datenschutzerkl&auml;rung an Ihre spezifischen Gegebenheiten an. Nutzen Sie ggf. einen Datenschutzerkl&auml;rungs-Generator.</p>', 'default', 91, null],
-        ];
+    // Standardeinstellungen
+    $defaults = [
+        'site_name' => 'Bogensportverein',
+        'site_subtitle' => 'Willkommen bei unserem Verein',
+        'footer_text' => '&copy; ' . date('Y') . ' Bogensportverein',
+        'primary_color' => '#2e7d32',
+        'secondary_color' => '#1b5e20',
+        'accent_color' => '#ff8f00',
+        'bg_color' => '#ffffff',
+        'text_color' => '#333333',
+    ];
 
-        $stmt = $db->prepare("INSERT INTO pages (slug, title, content, layout, menu_order, parent_id) VALUES (?, ?, ?, ?, ?, ?)");
-        foreach ($defaultPages as $page) {
-            $stmt->bindValue(1, $page[0]);
-            $stmt->bindValue(2, $page[1]);
-            $stmt->bindValue(3, $page[2]);
-            $stmt->bindValue(4, $page[3]);
-            $stmt->bindValue(5, $page[4]);
-            $stmt->bindValue(6, $page[5]);
-            $stmt->execute();
-            $stmt->reset();
-        }
+    foreach ($defaults as $key => $value) {
+        $stmt = $db->prepare("INSERT OR IGNORE INTO settings (key, value) VALUES (:key, :value)");
+        $stmt->bindValue(':key', $key, SQLITE3_TEXT);
+        $stmt->bindValue(':value', $value, SQLITE3_TEXT);
+        $stmt->execute();
     }
 
-    // Seed default settings
-    $stmt = $db->prepare("SELECT COUNT(*) as cnt FROM settings");
-    $result = $stmt->execute()->fetchArray();
-    if ($result['cnt'] == 0) {
-        $defaults = [
-            ['site_name', 'BSV 1960 Plauen e.V.'],
-            ['site_subtitle', 'Bogensport mit Tradition seit 1960'],
-            ['footer_text', '&copy; ' . date('Y') . ' BSV 1960 Plauen e.V. - Alle Rechte vorbehalten.'],
-            ['primary_color', '#F5A623'],
-            ['secondary_color', '#1B1464'],
-            ['bg_color', '#121212'],
+    // Standardseiten anlegen
+    $pageCount = $db->querySingle("SELECT COUNT(*) FROM pages");
+    if ($pageCount == 0) {
+        $seedPages = [
+            ['startseite', 'Startseite', '<h2>Willkommen beim Bogensportverein</h2><p>Wir freuen uns über Ihren Besuch auf unserer Webseite.</p>', 'hero', 1, 1],
+            ['ueber-uns', 'Über uns', '<h2>Über unseren Verein</h2><p>Hier erfahren Sie mehr über unseren Bogensportverein.</p>', 'default', 2, 1],
+            ['impressum', 'Impressum', '<h2>Impressum</h2><p><strong>Angaben gemäß § 5 TMG:</strong></p><p>Bogensportverein<br>Musterstraße 1<br>12345 Musterstadt</p><p><strong>Vertreten durch:</strong><br>Vorstand: Max Mustermann</p><p><strong>Kontakt:</strong><br>Telefon: 01234 / 56789<br>E-Mail: info@bogensportverein.de</p><p><strong>Registereintrag:</strong><br>Eingetragen im Vereinsregister.<br>Registergericht: Amtsgericht Musterstadt<br>Registernummer: VR 12345</p><p><strong>Verantwortlich für den Inhalt nach § 55 Abs. 2 RStV:</strong><br>Max Mustermann<br>Musterstraße 1<br>12345 Musterstadt</p>', 'default', 90, 1],
+            ['datenschutz', 'Datenschutzerklärung', '<h2>Datenschutzerklärung</h2><h3>1. Datenschutz auf einen Blick</h3><p><strong>Allgemeine Hinweise:</strong> Die folgenden Hinweise geben einen einfachen Überblick darüber, was mit Ihren personenbezogenen Daten passiert, wenn Sie diese Website besuchen.</p><h3>2. Allgemeine Hinweise und Pflichtinformationen</h3><p><strong>Datenschutz:</strong> Die Betreiber dieser Seiten nehmen den Schutz Ihrer persönlichen Daten sehr ernst. Wir behandeln Ihre personenbezogenen Daten vertraulich und entsprechend der gesetzlichen Datenschutzvorschriften sowie dieser Datenschutzerklärung.</p><h3>3. Datenerfassung auf dieser Website</h3><p><strong>Wer ist verantwortlich für die Datenerfassung auf dieser Website?</strong><br>Die Datenverarbeitung auf dieser Website erfolgt durch den Websitebetreiber. Dessen Kontaktdaten können Sie dem Impressum dieser Website entnehmen.</p><p><strong>Wie erfassen wir Ihre Daten?</strong><br>Ihre Daten werden zum einen dadurch erhoben, dass Sie uns diese mitteilen. Andere Daten werden automatisch oder nach Ihrer Einwilligung beim Besuch der Website durch unsere IT-Systeme erfasst. Das sind vor allem technische Daten (z.B. Internetbrowser, Betriebssystem oder Uhrzeit des Seitenaufrufs).</p><h3>4. Hosting</h3><p>Wir hosten die Inhalte unserer Website bei folgendem Anbieter: [Hosting-Anbieter eintragen]</p>', 'default', 91, 1],
         ];
-        $stmt = $db->prepare("INSERT INTO settings (key, value) VALUES (?, ?)");
-        foreach ($defaults as $s) {
-            $stmt->bindValue(1, $s[0]);
-            $stmt->bindValue(2, $s[1]);
+
+        $stmt = $db->prepare("INSERT INTO pages (slug, title, content, layout, menu_order, show_in_menu) VALUES (:slug, :title, :content, :layout, :order, :menu)");
+        foreach ($seedPages as $p) {
+            $stmt->bindValue(':slug', $p[0], SQLITE3_TEXT);
+            $stmt->bindValue(':title', $p[1], SQLITE3_TEXT);
+            $stmt->bindValue(':content', $p[2], SQLITE3_TEXT);
+            $stmt->bindValue(':layout', $p[3], SQLITE3_TEXT);
+            $stmt->bindValue(':order', $p[4], SQLITE3_INTEGER);
+            $stmt->bindValue(':menu', $p[5], SQLITE3_INTEGER);
             $stmt->execute();
             $stmt->reset();
         }
     }
 }
+
+init_db();

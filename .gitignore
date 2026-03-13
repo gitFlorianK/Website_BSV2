@@ -1,42 +1,7 @@
-# Dependencies
-node_modules/
-bower_components/
-
-# Build output
-dist/
-build/
-.cache/
-.parcel-cache/
-
-# Environment variables
-.env
-.env.local
-.env.*.local
-
-# OS files
-.DS_Store
-Thumbs.db
-
-# IDE / Editor
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-
-# Logs
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# Temporary files
-tmp/
-temp/
-
-# CMS data
 data/*.db
 data/*.db-wal
 data/*.db-shm
 uploads/*
 !uploads/.gitkeep
+.env
+*.log
