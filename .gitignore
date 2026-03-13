@@ -33,3 +33,10 @@ yarn-error.log*
 # Temporary files
 tmp/
 temp/
+
+# CMS data
+data/*.db
+data/*.db-wal
+data/*.db-shm
+uploads/*
+!uploads/.gitkeep

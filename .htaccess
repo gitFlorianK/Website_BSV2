@@ -1,0 +1,9 @@
+RewriteEngine On
+
+# Protect data directory
+RewriteRule ^data/ - [F,L]
+
+# If the request is not for an existing file or directory, route to index.php
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^(?!admin\.php)(.*)$ index.php?page=$1 [QSA,L]
