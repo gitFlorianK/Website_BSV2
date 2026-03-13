@@ -1,10 +1,20 @@
 <?php
 require_once __DIR__ . '/includes/functions.php';
 
-$slug = trim($_GET['page'] ?? 'startseite', '/');
+$slug = trim($_GET['page'] ?? '', '/');
 $slug = preg_replace('/[^a-z0-9\-]/', '', $slug);
 
-if (empty($slug)) $slug = 'startseite';
+// Wenn kein Slug angegeben, Startseite aus Einstellungen oder erste Seite laden
+if (empty($slug)) {
+    $homepageSlug = get_setting('homepage_slug');
+    if ($homepageSlug) {
+        $slug = $homepageSlug;
+    } else {
+        $db = get_db();
+        $first = $db->querySingle("SELECT slug FROM pages WHERE is_published = 1 ORDER BY menu_order ASC LIMIT 1");
+        $slug = $first ?: 'startseite';
+    }
+}
 
 $page = get_page($slug);
 

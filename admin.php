@@ -260,7 +260,8 @@ function show_page_edit(): void {
                 </div>
                 <div class="form-group">
                     <label for="content">Inhalt</label>
-                    <textarea id="content" name="content" class="tinymce-editor"><?= escape($page['content']) ?></textarea>
+                    <input type="hidden" id="content-hidden" name="content" value="<?= escape($page['content']) ?>">
+                    <div id="quill-editor" style="height:400px;background:#fff;"></div>
                 </div>
             </div>
             <div>
@@ -712,6 +713,18 @@ function show_settings(): void {
             <label for="footer_text">Footer-Text</label>
             <input type="text" id="footer_text" name="footer_text" class="form-control" value="<?= escape($settings['footer_text'] ?? '') ?>">
         </div>
+        <div class="form-group">
+            <label for="homepage_slug">Startseite</label>
+            <select id="homepage_slug" name="homepage_slug" class="form-control">
+                <?php
+                $db = get_db();
+                $pagesResult = $db->query("SELECT slug, title FROM pages WHERE is_published = 1 ORDER BY menu_order ASC");
+                while ($p = $pagesResult->fetchArray(SQLITE3_ASSOC)):
+                ?>
+                    <option value="<?= escape($p['slug']) ?>" <?= ($settings['homepage_slug'] ?? '') === $p['slug'] ? 'selected' : '' ?>><?= escape($p['title']) ?></option>
+                <?php endwhile; ?>
+            </select>
+        </div>
 
         <h3 style="margin:2rem 0 1rem;">Farben (Layout)</h3>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">
@@ -750,7 +763,7 @@ function handle_settings_save(): void {
     }
 
     $db = get_db();
-    $allowedKeys = ['site_name', 'site_subtitle', 'footer_text', 'primary_color', 'secondary_color', 'accent_color', 'bg_color', 'text_color'];
+    $allowedKeys = ['site_name', 'site_subtitle', 'footer_text', 'homepage_slug', 'primary_color', 'secondary_color', 'accent_color', 'bg_color', 'text_color'];
 
     foreach ($allowedKeys as $key) {
         if (isset($_POST[$key])) {

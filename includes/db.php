@@ -70,11 +70,11 @@ function init_db(): void {
         'site_name' => 'Bogensportverein',
         'site_subtitle' => 'Willkommen bei unserem Verein',
         'footer_text' => '&copy; ' . date('Y') . ' Bogensportverein',
-        'primary_color' => '#2e7d32',
-        'secondary_color' => '#1b5e20',
-        'accent_color' => '#ff8f00',
-        'bg_color' => '#ffffff',
-        'text_color' => '#333333',
+        'primary_color' => '#1a2744',
+        'secondary_color' => '#0f1b33',
+        'accent_color' => '#f5920a',
+        'bg_color' => '#f5f5f5',
+        'text_color' => '#1a1a1a',
     ];
 
     foreach ($defaults as $key => $value) {

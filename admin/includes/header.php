@@ -18,7 +18,8 @@ $currentSection = $currentSection ?? 'dashboard';
         }
     </style>
     <link rel="stylesheet" href="/assets/css/style.css">
-    <script src="https://cdn.tiny.cloud/1/no-api-key/tinymce/6/tinymce.min.js" referrerpolicy="origin"></script>
+    <link href="https://cdn.jsdelivr.net/npm/quill@2.0.3/dist/quill.snow.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/quill@2.0.3/dist/quill.js"></script>
 </head>
 <body>
     <div class="admin-layout">

@@ -1,27 +1,66 @@
         </div>
     </div>
     <script>
-        // TinyMCE initialisieren
-        if (document.querySelector('.tinymce-editor')) {
-            tinymce.init({
-                selector: '.tinymce-editor',
-                language: 'de',
-                height: 500,
-                menubar: 'file edit view insert format tools table',
-                plugins: 'advlist autolink lists link image charmap preview anchor searchreplace visualblocks code fullscreen insertdatetime media table help wordcount',
-                toolbar: 'undo redo | blocks | bold italic underline strikethrough | alignleft aligncenter alignright alignjustify | bullist numlist outdent indent | link image | forecolor backcolor | removeformat | code fullscreen',
-                content_style: 'body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 16px; line-height: 1.6; }',
-                images_upload_url: '/admin.php?action=upload_tinymce',
-                images_upload_credentials: true,
-                automatic_uploads: true,
-                file_picker_types: 'image',
-                relative_urls: false,
-                remove_script_host: true,
-            });
-        }
-
-        // Mobile Sidebar Toggle
+        // Quill Editor initialisieren
         document.addEventListener('DOMContentLoaded', function() {
+            const editorContainer = document.getElementById('quill-editor');
+            const hiddenInput = document.getElementById('content-hidden');
+
+            if (editorContainer && hiddenInput) {
+                const quill = new Quill('#quill-editor', {
+                    theme: 'snow',
+                    modules: {
+                        toolbar: [
+                            [{ 'header': [1, 2, 3, 4, false] }],
+                            ['bold', 'italic', 'underline', 'strike'],
+                            [{ 'color': [] }, { 'background': [] }],
+                            [{ 'align': [] }],
+                            [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+                            [{ 'indent': '-1'}, { 'indent': '+1' }],
+                            ['blockquote', 'code-block'],
+                            ['link', 'image'],
+                            ['clean']
+                        ]
+                    }
+                });
+
+                // Vorhandenen Inhalt laden
+                quill.root.innerHTML = hiddenInput.value;
+
+                // Bild-Upload Handler
+                quill.getModule('toolbar').addHandler('image', function() {
+                    const input = document.createElement('input');
+                    input.type = 'file';
+                    input.accept = 'image/*';
+                    input.onchange = async function() {
+                        const file = input.files[0];
+                        if (!file) return;
+                        const formData = new FormData();
+                        formData.append('file', file);
+                        try {
+                            const res = await fetch('/admin.php?action=upload_tinymce', {
+                                method: 'POST',
+                                body: formData
+                            });
+                            const data = await res.json();
+                            if (data.location) {
+                                const range = quill.getSelection(true);
+                                quill.insertEmbed(range.index, 'image', data.location);
+                            }
+                        } catch(e) {
+                            alert('Upload fehlgeschlagen.');
+                        }
+                    };
+                    input.click();
+                });
+
+                // Vor dem Absenden HTML in hidden input übertragen
+                document.querySelector('form').addEventListener('submit', function() {
+                    hiddenInput.value = quill.root.innerHTML;
+                });
+            }
+
+            // Mobile Sidebar Toggle
             const sidebar = document.getElementById('admin-sidebar');
             if (window.innerWidth <= 768) {
                 const toggle = document.createElement('button');
