@@ -1,8 +1,18 @@
 <?php
+send_security_headers();
 $settings = get_all_settings();
 $menuPages = get_menu_pages();
 $menuTree = build_menu_tree($menuPages);
 $currentSlug = $currentSlug ?? 'startseite';
+
+// Farben nur ausgeben wenn sie dem erwarteten Format entsprechen
+$colors = [
+    'primary' => validate_color($settings['primary_color'] ?? '') ? $settings['primary_color'] : '#1a2744',
+    'secondary' => validate_color($settings['secondary_color'] ?? '') ? $settings['secondary_color'] : '#0f1b33',
+    'accent' => validate_color($settings['accent_color'] ?? '') ? $settings['accent_color'] : '#f5920a',
+    'bg' => validate_color($settings['bg_color'] ?? '') ? $settings['bg_color'] : '#f5f5f5',
+    'text' => validate_color($settings['text_color'] ?? '') ? $settings['text_color'] : '#1a1a1a',
+];
 ?>
 <!DOCTYPE html>
 <html lang="de">
@@ -13,11 +23,11 @@ $currentSlug = $currentSlug ?? 'startseite';
     <title><?= escape($pageTitle ?? $settings['site_name'] ?? 'Bogensportverein') ?></title>
     <style>
         :root {
-            --primary: <?= escape($settings['primary_color'] ?? '#2e7d32') ?>;
-            --secondary: <?= escape($settings['secondary_color'] ?? '#1b5e20') ?>;
-            --accent: <?= escape($settings['accent_color'] ?? '#ff8f00') ?>;
-            --bg: <?= escape($settings['bg_color'] ?? '#ffffff') ?>;
-            --text: <?= escape($settings['text_color'] ?? '#333333') ?>;
+            --primary: <?= $colors['primary'] ?>;
+            --secondary: <?= $colors['secondary'] ?>;
+            --accent: <?= $colors['accent'] ?>;
+            --bg: <?= $colors['bg'] ?>;
+            --text: <?= $colors['text'] ?>;
         }
     </style>
     <link rel="stylesheet" href="/assets/css/style.css">

@@ -1,31 +1,35 @@
 <?php
-session_start();
 require_once __DIR__ . '/includes/functions.php';
+secure_session_start();
 
 $action = $_GET['action'] ?? 'dashboard';
 
-// --- Logout ---
+// --- Logout (sicher) ---
 if ($action === 'logout') {
+    $_SESSION = [];
+    if (ini_get('session.use_cookies')) {
+        setcookie(session_name(), '', time() - 3600, '/');
+    }
     session_destroy();
     redirect('/admin.php');
 }
 
 // --- Login ---
 if (!isset($_SESSION['user_id']) && $action !== 'login_post') {
-    $error = '';
-    if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-        $error = 'Ungültige Anmeldedaten.';
-    }
-    show_login($error);
+    show_login();
     exit;
 }
 
-if ($action === 'login_post' || ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_SESSION['user_id']))) {
+if ($action === 'login_post' && !isset($_SESSION['user_id'])) {
     handle_login();
     exit;
 }
 
-// --- Routing ---
+if (!isset($_SESSION['user_id'])) {
+    redirect('/admin.php');
+}
+
+// --- Routing (nur für eingeloggte Benutzer) ---
 match ($action) {
     'dashboard' => show_dashboard(),
     'pages' => show_pages(),
@@ -35,7 +39,7 @@ match ($action) {
     'media' => show_media(),
     'media_upload' => handle_media_upload(),
     'media_delete' => handle_media_delete(),
-    'upload_tinymce' => handle_tinymce_upload(),
+    'editor_upload' => handle_editor_upload(),
     'users' => show_users(),
     'user_edit' => show_user_edit(),
     'user_save' => handle_user_save(),
@@ -49,7 +53,13 @@ match ($action) {
 // LOGIN
 // =============================================
 function show_login(string $error = ''): void {
+    send_security_headers();
     $settings = get_all_settings();
+    $colors = [
+        'primary' => validate_color($settings['primary_color'] ?? '') ? $settings['primary_color'] : '#1a2744',
+        'secondary' => validate_color($settings['secondary_color'] ?? '') ? $settings['secondary_color'] : '#0f1b33',
+        'accent' => validate_color($settings['accent_color'] ?? '') ? $settings['accent_color'] : '#f5920a',
+    ];
 ?>
 <!DOCTYPE html>
 <html lang="de">
@@ -58,7 +68,7 @@ function show_login(string $error = ''): void {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Login – Admin</title>
     <style>
-        :root { --primary: <?= escape($settings['primary_color'] ?? '#2e7d32') ?>; --secondary: <?= escape($settings['secondary_color'] ?? '#1b5e20') ?>; --accent: <?= escape($settings['accent_color'] ?? '#ff8f00') ?>; --bg: #f0f2f5; --text: #333; }
+        :root { --primary: <?= $colors['primary'] ?>; --secondary: <?= $colors['secondary'] ?>; --accent: <?= $colors['accent'] ?>; --bg: #f0f2f5; --text: #333; }
     </style>
     <link rel="stylesheet" href="/assets/css/style.css">
 </head>
@@ -70,11 +80,11 @@ function show_login(string $error = ''): void {
             <input type="hidden" name="csrf_token" value="<?= csrf_token() ?>">
             <div class="form-group">
                 <label for="username">Benutzername</label>
-                <input type="text" id="username" name="username" class="form-control" required autofocus>
+                <input type="text" id="username" name="username" class="form-control" required autofocus autocomplete="username">
             </div>
             <div class="form-group">
                 <label for="password">Passwort</label>
-                <input type="password" id="password" name="password" class="form-control" required>
+                <input type="password" id="password" name="password" class="form-control" required autocomplete="current-password">
             </div>
             <button type="submit" class="btn btn-primary" style="width:100%;">Anmelden</button>
         </form>
@@ -86,7 +96,15 @@ function show_login(string $error = ''): void {
 
 function handle_login(): void {
     if (!verify_csrf($_POST['csrf_token'] ?? '')) {
-        show_login('Ungültiges Sicherheitstoken.');
+        show_login('Ungültiges Sicherheitstoken. Bitte erneut versuchen.');
+        return;
+    }
+
+    $ip = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
+
+    // Brute-Force-Schutz
+    if (!check_login_allowed($ip)) {
+        show_login('Zu viele Anmeldeversuche. Bitte warten Sie ' . (LOGIN_LOCKOUT_SECONDS / 60) . ' Minuten.');
         return;
     }
 
@@ -99,13 +117,19 @@ function handle_login(): void {
     $result = $stmt->execute();
     $user = $result->fetchArray(SQLITE3_ASSOC);
 
-    if ($user && password_verify($password, $user['password'])) {
+    // Timing-sichere Prüfung: password_verify auch bei ungültigem User aufrufen
+    $dummyHash = '$2y$10$abcdefghijklmnopqrstuuABCDEFGHIJKLMNOPQRSTUVWXYZ01234';
+    $valid = password_verify($password, $user['password'] ?? $dummyHash) && $user;
+
+    if ($valid) {
+        clear_login_attempts($ip);
         session_regenerate_id(true);
         $_SESSION['user_id'] = $user['id'];
         $_SESSION['username'] = $user['username'];
         $_SESSION['role'] = $user['role'];
         redirect('/admin.php');
     } else {
+        record_login_attempt($ip);
         show_login('Ungültige Anmeldedaten.');
     }
 }
@@ -126,6 +150,10 @@ function show_dashboard(): void {
     $mediaCount = $db->querySingle("SELECT COUNT(*) FROM media");
     $userCount = $db->querySingle("SELECT COUNT(*) FROM users");
 
+    // Erstpasswort-Hinweis anzeigen
+    $pwFile = DATA_PATH . '/initial_password.txt';
+    $initialPw = file_exists($pwFile) ? file_get_contents($pwFile) : null;
+
     $currentSection = 'dashboard';
     require __DIR__ . '/admin/includes/header.php';
 ?>
@@ -133,18 +161,26 @@ function show_dashboard(): void {
         <h1>Dashboard</h1>
         <span>Willkommen, <?= escape($_SESSION['username']) ?></span>
     </div>
+
+    <?php if ($initialPw): ?>
+    <div class="alert alert-info" style="white-space:pre-line;">
+        <strong>Erstinstallation:</strong> Bitte ändern Sie das Passwort unter "Benutzer" und löschen Sie dann die Datei <code>data/initial_password.txt</code>.
+        <?= escape($initialPw) ?>
+    </div>
+    <?php endif; ?>
+
     <div class="dashboard-cards">
         <div class="card">
             <h3>Seiten</h3>
-            <div class="card-value"><?= $pageCount ?></div>
+            <div class="card-value"><?= (int)$pageCount ?></div>
         </div>
         <div class="card">
             <h3>Medien</h3>
-            <div class="card-value"><?= $mediaCount ?></div>
+            <div class="card-value"><?= (int)$mediaCount ?></div>
         </div>
         <div class="card">
             <h3>Benutzer</h3>
-            <div class="card-value"><?= $userCount ?></div>
+            <div class="card-value"><?= (int)$userCount ?></div>
         </div>
     </div>
     <div class="admin-header">
@@ -159,7 +195,7 @@ function show_dashboard(): void {
         while ($page = $result->fetchArray(SQLITE3_ASSOC)):
         ?>
             <tr>
-                <td><a href="/admin.php?action=page_edit&id=<?= $page['id'] ?>"><?= escape($page['title']) ?></a></td>
+                <td><a href="/admin.php?action=page_edit&id=<?= (int)$page['id'] ?>"><?= escape($page['title']) ?></a></td>
                 <td><?= escape($page['slug']) ?></td>
                 <td><?= escape($page['layout']) ?></td>
                 <td><?= $page['is_published'] ? 'Veröffentlicht' : 'Entwurf' ?></td>
@@ -192,10 +228,10 @@ function show_pages(): void {
         while ($page = $result->fetchArray(SQLITE3_ASSOC)):
         ?>
             <tr>
-                <td><?= $page['menu_order'] ?></td>
+                <td><?= (int)$page['menu_order'] ?></td>
                 <td>
                     <?php if ($page['parent_title']): ?><small style="color:#999;"><?= escape($page['parent_title']) ?> &raquo;</small> <?php endif; ?>
-                    <a href="/admin.php?action=page_edit&id=<?= $page['id'] ?>"><?= escape($page['title']) ?></a>
+                    <a href="/admin.php?action=page_edit&id=<?= (int)$page['id'] ?>"><?= escape($page['title']) ?></a>
                 </td>
                 <td><code><?= escape($page['slug']) ?></code></td>
                 <td><?= escape($page['layout']) ?></td>
@@ -203,8 +239,12 @@ function show_pages(): void {
                 <td><?= $page['is_published'] ? 'Veröffentlicht' : 'Entwurf' ?></td>
                 <td>
                     <a href="/<?= escape($page['slug']) ?>" target="_blank" class="btn btn-sm btn-accent">Ansehen</a>
-                    <a href="/admin.php?action=page_edit&id=<?= $page['id'] ?>" class="btn btn-sm btn-primary">Bearbeiten</a>
-                    <a href="/admin.php?action=page_delete&id=<?= $page['id'] ?>&csrf=<?= csrf_token() ?>" class="btn btn-sm btn-danger" onclick="return confirm('Seite wirklich löschen?')">Löschen</a>
+                    <a href="/admin.php?action=page_edit&id=<?= (int)$page['id'] ?>" class="btn btn-sm btn-primary">Bearbeiten</a>
+                    <form method="post" action="/admin.php?action=page_delete" style="display:inline;" onsubmit="return confirm('Seite wirklich löschen?')">
+                        <input type="hidden" name="csrf_token" value="<?= csrf_token() ?>">
+                        <input type="hidden" name="id" value="<?= (int)$page['id'] ?>">
+                        <button type="submit" class="btn btn-sm btn-danger">Löschen</button>
+                    </form>
                 </td>
             </tr>
         <?php endwhile; ?>
@@ -243,10 +283,11 @@ function show_page_edit(): void {
     </div>
 
     <?php if (isset($_GET['saved'])): ?><div class="alert alert-success">Seite gespeichert.</div><?php endif; ?>
+    <?php if (isset($_GET['error'])): ?><div class="alert alert-error"><?= escape($_GET['error']) ?></div><?php endif; ?>
 
     <form method="post" action="/admin.php?action=page_save">
         <input type="hidden" name="csrf_token" value="<?= csrf_token() ?>">
-        <input type="hidden" name="id" value="<?= $page['id'] ?>">
+        <input type="hidden" name="id" value="<?= (int)$page['id'] ?>">
 
         <div style="display:grid;grid-template-columns:1fr 300px;gap:2rem;">
             <div>
@@ -279,7 +320,7 @@ function show_page_edit(): void {
                     <select id="parent_id" name="parent_id" class="form-control">
                         <option value="">– Keine (Hauptebene) –</option>
                         <?php foreach ($parentPages as $pp): ?>
-                            <option value="<?= $pp['id'] ?>" <?= $page['parent_id'] == $pp['id'] ? 'selected' : '' ?>><?= escape($pp['title']) ?></option>
+                            <option value="<?= (int)$pp['id'] ?>" <?= (int)($page['parent_id'] ?? 0) === (int)$pp['id'] ? 'selected' : '' ?>><?= escape($pp['title']) ?></option>
                         <?php endforeach; ?>
                     </select>
                 </div>
@@ -335,10 +376,27 @@ function handle_page_save(): void {
     $showInMenu = isset($_POST['show_in_menu']) ? 1 : 0;
     $isPublished = isset($_POST['is_published']) ? 1 : 0;
 
-    // Sanitize content - allow safe HTML tags
-    $content = strip_tags($content, '<h1><h2><h3><h4><h5><h6><p><br><a><img><ul><ol><li><strong><em><u><s><blockquote><pre><code><table><thead><tbody><tr><th><td><div><span><hr><figure><figcaption>');
+    if (empty($title) || empty($slug)) {
+        redirect('/admin.php?action=page_edit&id=' . $id . '&error=' . urlencode('Titel und Slug sind Pflichtfelder.'));
+    }
 
-    // Validate layout
+    // Slug-Format validieren
+    if (!preg_match('/^[a-z0-9\-]+$/', $slug)) {
+        redirect('/admin.php?action=page_edit&id=' . $id . '&error=' . urlencode('Slug darf nur Kleinbuchstaben, Zahlen und Bindestriche enthalten.'));
+    }
+
+    // Slug-Eindeutigkeit prüfen
+    $stmt = $db->prepare("SELECT id FROM pages WHERE slug = :slug AND id != :id");
+    $stmt->bindValue(':slug', $slug, SQLITE3_TEXT);
+    $stmt->bindValue(':id', $id, SQLITE3_INTEGER);
+    $existing = $stmt->execute()->fetchArray();
+    if ($existing) {
+        redirect('/admin.php?action=page_edit&id=' . $id . '&error=' . urlencode('Dieser Slug wird bereits von einer anderen Seite verwendet.'));
+    }
+
+    // Content sanitizen
+    $content = sanitize_html($content);
+
     $allowedLayouts = ['default', 'hero', 'two-column', 'full-width'];
     if (!in_array($layout, $allowedLayouts)) $layout = 'default';
 
@@ -357,22 +415,26 @@ function handle_page_save(): void {
     $stmt->bindValue(':ord', $menuOrder, SQLITE3_INTEGER);
     $stmt->bindValue(':menu', $showInMenu, SQLITE3_INTEGER);
     $stmt->bindValue(':pub', $isPublished, SQLITE3_INTEGER);
-    $stmt->execute();
+
+    if (!$stmt->execute()) {
+        redirect('/admin.php?action=page_edit&id=' . $id . '&error=' . urlencode('Fehler beim Speichern.'));
+    }
 
     $newId = $id > 0 ? $id : $db->lastInsertRowID();
     redirect('/admin.php?action=page_edit&id=' . $newId . '&saved=1');
 }
 
 function handle_page_delete(): void {
-    if (!verify_csrf($_GET['csrf'] ?? '')) {
-        redirect('/admin.php?action=pages');
-    }
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') redirect('/admin.php?action=pages');
+    if (!verify_csrf($_POST['csrf_token'] ?? '')) redirect('/admin.php?action=pages');
 
     $db = get_db();
-    $id = (int)($_GET['id'] ?? 0);
-    $stmt = $db->prepare("DELETE FROM pages WHERE id = :id");
-    $stmt->bindValue(':id', $id, SQLITE3_INTEGER);
-    $stmt->execute();
+    $id = (int)($_POST['id'] ?? 0);
+    if ($id > 0) {
+        $stmt = $db->prepare("DELETE FROM pages WHERE id = :id");
+        $stmt->bindValue(':id', $id, SQLITE3_INTEGER);
+        $stmt->execute();
+    }
     redirect('/admin.php?action=pages');
 }
 
@@ -410,14 +472,55 @@ function show_media(): void {
             <div class="media-info">
                 <strong><?= escape($item['original_name']) ?></strong><br>
                 <small><?= escape($item['uploaded_at']) ?></small><br>
-                <input type="text" value="/uploads/<?= escape($item['filename']) ?>" class="form-control" style="font-size:0.75rem;margin:0.3rem 0;" readonly onclick="this.select();document.execCommand('copy');">
-                <a href="/admin.php?action=media_delete&id=<?= $item['id'] ?>&csrf=<?= csrf_token() ?>" class="btn btn-sm btn-danger" onclick="return confirm('Bild löschen?')">Löschen</a>
+                <input type="text" value="/uploads/<?= escape($item['filename']) ?>" class="form-control" style="font-size:0.75rem;margin:0.3rem 0;" readonly onclick="navigator.clipboard.writeText(this.value)">
+                <form method="post" action="/admin.php?action=media_delete" style="display:inline;" onsubmit="return confirm('Bild löschen?')">
+                    <input type="hidden" name="csrf_token" value="<?= csrf_token() ?>">
+                    <input type="hidden" name="id" value="<?= (int)$item['id'] ?>">
+                    <button type="submit" class="btn btn-sm btn-danger">Löschen</button>
+                </form>
             </div>
         </div>
     <?php endwhile; ?>
     </div>
 <?php
     require __DIR__ . '/admin/includes/footer.php';
+}
+
+function process_upload(array $file): array {
+    $finfo = new finfo(FILEINFO_MIME_TYPE);
+    $mime = $finfo->file($file['tmp_name']);
+    if (!in_array($mime, ALLOWED_MIME_TYPES)) {
+        return ['error' => 'Ungültiger Dateityp. Erlaubt: JPEG, PNG, GIF, WebP.'];
+    }
+
+    if ($file['size'] > MAX_UPLOAD_SIZE) {
+        return ['error' => 'Datei zu groß (max. 10 MB).'];
+    }
+
+    $ext = match ($mime) {
+        'image/jpeg' => 'jpg',
+        'image/png' => 'png',
+        'image/gif' => 'gif',
+        'image/webp' => 'webp',
+        default => 'jpg',
+    };
+    $filename = bin2hex(random_bytes(16)) . '.' . $ext;
+    $destPath = UPLOAD_PATH . '/' . $filename;
+
+    if (!resize_image($file['tmp_name'], $destPath)) {
+        return ['error' => 'Bildverarbeitung fehlgeschlagen.'];
+    }
+
+    $db = get_db();
+    $stmt = $db->prepare("INSERT INTO media (filename, original_name, mime_type, file_size, uploaded_by) VALUES (:fn, :on, :mt, :fs, :ub)");
+    $stmt->bindValue(':fn', $filename, SQLITE3_TEXT);
+    $stmt->bindValue(':on', $file['name'], SQLITE3_TEXT);
+    $stmt->bindValue(':mt', $mime, SQLITE3_TEXT);
+    $stmt->bindValue(':fs', filesize($destPath), SQLITE3_INTEGER);
+    $stmt->bindValue(':ub', $_SESSION['user_id'], SQLITE3_INTEGER);
+    $stmt->execute();
+
+    return ['filename' => $filename];
 }
 
 function handle_media_upload(): void {
@@ -429,63 +532,27 @@ function handle_media_upload(): void {
         redirect('/admin.php?action=media&error=' . urlencode('Upload fehlgeschlagen.'));
     }
 
-    $file = $_FILES['file'];
-
-    // Validate MIME type
-    $finfo = new finfo(FILEINFO_MIME_TYPE);
-    $mime = $finfo->file($file['tmp_name']);
-    if (!in_array($mime, ALLOWED_MIME_TYPES)) {
-        redirect('/admin.php?action=media&error=' . urlencode('Ungültiger Dateityp. Erlaubt: JPEG, PNG, GIF, WebP.'));
+    $result = process_upload($_FILES['file']);
+    if (isset($result['error'])) {
+        redirect('/admin.php?action=media&error=' . urlencode($result['error']));
     }
-
-    // Validate file size
-    if ($file['size'] > MAX_UPLOAD_SIZE) {
-        redirect('/admin.php?action=media&error=' . urlencode('Datei zu groß (max. 10 MB).'));
-    }
-
-    // Generate unique filename
-    $ext = match ($mime) {
-        'image/jpeg' => 'jpg',
-        'image/png' => 'png',
-        'image/gif' => 'gif',
-        'image/webp' => 'webp',
-        default => 'jpg',
-    };
-    $filename = bin2hex(random_bytes(16)) . '.' . $ext;
-    $destPath = UPLOAD_PATH . '/' . $filename;
-
-    // Resize and save
-    if (!resize_image($file['tmp_name'], $destPath)) {
-        redirect('/admin.php?action=media&error=' . urlencode('Bildverarbeitung fehlgeschlagen.'));
-    }
-
-    // Save to database
-    $db = get_db();
-    $stmt = $db->prepare("INSERT INTO media (filename, original_name, mime_type, file_size, uploaded_by) VALUES (:fn, :on, :mt, :fs, :ub)");
-    $stmt->bindValue(':fn', $filename, SQLITE3_TEXT);
-    $stmt->bindValue(':on', $file['name'], SQLITE3_TEXT);
-    $stmt->bindValue(':mt', $mime, SQLITE3_TEXT);
-    $stmt->bindValue(':fs', filesize($destPath), SQLITE3_INTEGER);
-    $stmt->bindValue(':ub', $_SESSION['user_id'], SQLITE3_INTEGER);
-    $stmt->execute();
 
     redirect('/admin.php?action=media&uploaded=1');
 }
 
 function handle_media_delete(): void {
-    if (!verify_csrf($_GET['csrf'] ?? '')) {
-        redirect('/admin.php?action=media');
-    }
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') redirect('/admin.php?action=media');
+    if (!verify_csrf($_POST['csrf_token'] ?? '')) redirect('/admin.php?action=media');
 
     $db = get_db();
-    $id = (int)($_GET['id'] ?? 0);
+    $id = (int)($_POST['id'] ?? 0);
     $stmt = $db->prepare("SELECT filename FROM media WHERE id = :id");
     $stmt->bindValue(':id', $id, SQLITE3_INTEGER);
     $result = $stmt->execute();
     $item = $result->fetchArray(SQLITE3_ASSOC);
 
     if ($item) {
-        $filepath = UPLOAD_PATH . '/' . $item['filename'];
+        $filepath = UPLOAD_PATH . '/' . basename($item['filename']);
         if (file_exists($filepath)) unlink($filepath);
         $stmt = $db->prepare("DELETE FROM media WHERE id = :id");
         $stmt->bindValue(':id', $id, SQLITE3_INTEGER);
@@ -495,44 +562,27 @@ function handle_media_delete(): void {
     redirect('/admin.php?action=media');
 }
 
-function handle_tinymce_upload(): void {
+function handle_editor_upload(): void {
     header('Content-Type: application/json');
 
-    if (empty($_FILES['file']['tmp_name'])) {
+    if (!isset($_SESSION['user_id'])) {
+        http_response_code(403);
+        echo json_encode(['error' => 'Nicht angemeldet.']);
+        exit;
+    }
+
+    if (empty($_FILES['file']['tmp_name']) || $_FILES['file']['error'] !== UPLOAD_ERR_OK) {
         echo json_encode(['error' => 'Keine Datei.']);
         exit;
     }
 
-    $file = $_FILES['file'];
-    $finfo = new finfo(FILEINFO_MIME_TYPE);
-    $mime = $finfo->file($file['tmp_name']);
-
-    if (!in_array($mime, ALLOWED_MIME_TYPES)) {
-        echo json_encode(['error' => 'Ungültiger Dateityp.']);
+    $result = process_upload($_FILES['file']);
+    if (isset($result['error'])) {
+        echo json_encode(['error' => $result['error']]);
         exit;
     }
 
-    $ext = match ($mime) {
-        'image/jpeg' => 'jpg', 'image/png' => 'png', 'image/gif' => 'gif', 'image/webp' => 'webp', default => 'jpg',
-    };
-    $filename = bin2hex(random_bytes(16)) . '.' . $ext;
-    $destPath = UPLOAD_PATH . '/' . $filename;
-
-    if (!resize_image($file['tmp_name'], $destPath)) {
-        echo json_encode(['error' => 'Bildverarbeitung fehlgeschlagen.']);
-        exit;
-    }
-
-    $db = get_db();
-    $stmt = $db->prepare("INSERT INTO media (filename, original_name, mime_type, file_size, uploaded_by) VALUES (:fn, :on, :mt, :fs, :ub)");
-    $stmt->bindValue(':fn', $filename, SQLITE3_TEXT);
-    $stmt->bindValue(':on', $file['name'], SQLITE3_TEXT);
-    $stmt->bindValue(':mt', $mime, SQLITE3_TEXT);
-    $stmt->bindValue(':fs', filesize($destPath), SQLITE3_INTEGER);
-    $stmt->bindValue(':ub', $_SESSION['user_id'], SQLITE3_INTEGER);
-    $stmt->execute();
-
-    echo json_encode(['location' => '/uploads/' . $filename]);
+    echo json_encode(['location' => '/uploads/' . $result['filename']]);
     exit;
 }
 
@@ -552,6 +602,7 @@ function show_users(): void {
 
     <?php if (isset($_GET['saved'])): ?><div class="alert alert-success">Benutzer gespeichert.</div><?php endif; ?>
     <?php if (isset($_GET['deleted'])): ?><div class="alert alert-success">Benutzer gelöscht.</div><?php endif; ?>
+    <?php if (isset($_GET['error'])): ?><div class="alert alert-error"><?= escape($_GET['error']) ?></div><?php endif; ?>
 
     <table class="admin-table">
         <thead><tr><th>Benutzername</th><th>Rolle</th><th>Erstellt</th><th>Aktionen</th></tr></thead>
@@ -562,12 +613,16 @@ function show_users(): void {
         ?>
             <tr>
                 <td><?= escape($user['username']) ?></td>
-                <td><?= escape($user['role']) ?></td>
+                <td><?= $user['role'] === 'admin' ? 'Administrator' : 'Redakteur' ?></td>
                 <td><?= escape($user['created_at']) ?></td>
                 <td>
-                    <a href="/admin.php?action=user_edit&id=<?= $user['id'] ?>" class="btn btn-sm btn-primary">Bearbeiten</a>
-                    <?php if ($user['id'] != $_SESSION['user_id']): ?>
-                        <a href="/admin.php?action=user_delete&id=<?= $user['id'] ?>&csrf=<?= csrf_token() ?>" class="btn btn-sm btn-danger" onclick="return confirm('Benutzer löschen?')">Löschen</a>
+                    <a href="/admin.php?action=user_edit&id=<?= (int)$user['id'] ?>" class="btn btn-sm btn-primary">Bearbeiten</a>
+                    <?php if ((int)$user['id'] !== (int)$_SESSION['user_id']): ?>
+                        <form method="post" action="/admin.php?action=user_delete" style="display:inline;" onsubmit="return confirm('Benutzer löschen?')">
+                            <input type="hidden" name="csrf_token" value="<?= csrf_token() ?>">
+                            <input type="hidden" name="id" value="<?= (int)$user['id'] ?>">
+                            <button type="submit" class="btn btn-sm btn-danger">Löschen</button>
+                        </form>
                     <?php endif; ?>
                 </td>
             </tr>
@@ -603,14 +658,14 @@ function show_user_edit(): void {
 
     <form method="post" action="/admin.php?action=user_save" style="max-width:500px;">
         <input type="hidden" name="csrf_token" value="<?= csrf_token() ?>">
-        <input type="hidden" name="id" value="<?= $user['id'] ?>">
+        <input type="hidden" name="id" value="<?= (int)$user['id'] ?>">
         <div class="form-group">
             <label for="username">Benutzername</label>
-            <input type="text" id="username" name="username" class="form-control" value="<?= escape($user['username']) ?>" required>
+            <input type="text" id="username" name="username" class="form-control" value="<?= escape($user['username']) ?>" required autocomplete="off">
         </div>
         <div class="form-group">
             <label for="password">Passwort <?= $user['id'] ? '(leer lassen = nicht ändern)' : '' ?></label>
-            <input type="password" id="password" name="password" class="form-control" <?= $user['id'] ? '' : 'required' ?> minlength="8">
+            <input type="password" id="password" name="password" class="form-control" <?= $user['id'] ? '' : 'required' ?> minlength="8" autocomplete="new-password">
         </div>
         <div class="form-group">
             <label for="role">Rolle</label>
@@ -627,9 +682,7 @@ function show_user_edit(): void {
 
 function handle_user_save(): void {
     require_admin();
-    if (!verify_csrf($_POST['csrf_token'] ?? '')) {
-        redirect('/admin.php?action=users');
-    }
+    if (!verify_csrf($_POST['csrf_token'] ?? '')) redirect('/admin.php?action=users');
 
     $db = get_db();
     $id = (int)($_POST['id'] ?? 0);
@@ -638,6 +691,15 @@ function handle_user_save(): void {
     $role = in_array($_POST['role'] ?? '', ['admin', 'editor']) ? $_POST['role'] : 'editor';
 
     if (empty($username)) redirect('/admin.php?action=users');
+
+    // Benutzername-Eindeutigkeit prüfen
+    $stmt = $db->prepare("SELECT id FROM users WHERE username = :u AND id != :id");
+    $stmt->bindValue(':u', $username, SQLITE3_TEXT);
+    $stmt->bindValue(':id', $id, SQLITE3_INTEGER);
+    $existing = $stmt->execute()->fetchArray();
+    if ($existing) {
+        redirect('/admin.php?action=users&error=' . urlencode('Benutzername bereits vergeben.'));
+    }
 
     if ($id > 0) {
         $stmt = $db->prepare("UPDATE users SET username=:u, role=:r WHERE id=:id");
@@ -666,14 +728,11 @@ function handle_user_save(): void {
 
 function handle_user_delete(): void {
     require_admin();
-    if (!verify_csrf($_GET['csrf'] ?? '')) {
-        redirect('/admin.php?action=users');
-    }
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') redirect('/admin.php?action=users');
+    if (!verify_csrf($_POST['csrf_token'] ?? '')) redirect('/admin.php?action=users');
 
-    $id = (int)($_GET['id'] ?? 0);
-    if ($id == $_SESSION['user_id']) {
-        redirect('/admin.php?action=users');
-    }
+    $id = (int)($_POST['id'] ?? 0);
+    if ($id === (int)$_SESSION['user_id']) redirect('/admin.php?action=users');
 
     $db = get_db();
     $stmt = $db->prepare("DELETE FROM users WHERE id = :id");
@@ -730,23 +789,23 @@ function show_settings(): void {
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">
             <div class="form-group">
                 <label for="primary_color">Primärfarbe</label>
-                <input type="color" id="primary_color" name="primary_color" value="<?= escape($settings['primary_color'] ?? '#2e7d32') ?>">
+                <input type="color" id="primary_color" name="primary_color" value="<?= escape($settings['primary_color'] ?? '#1a2744') ?>">
             </div>
             <div class="form-group">
                 <label for="secondary_color">Sekundärfarbe</label>
-                <input type="color" id="secondary_color" name="secondary_color" value="<?= escape($settings['secondary_color'] ?? '#1b5e20') ?>">
+                <input type="color" id="secondary_color" name="secondary_color" value="<?= escape($settings['secondary_color'] ?? '#0f1b33') ?>">
             </div>
             <div class="form-group">
                 <label for="accent_color">Akzentfarbe</label>
-                <input type="color" id="accent_color" name="accent_color" value="<?= escape($settings['accent_color'] ?? '#ff8f00') ?>">
+                <input type="color" id="accent_color" name="accent_color" value="<?= escape($settings['accent_color'] ?? '#f5920a') ?>">
             </div>
             <div class="form-group">
                 <label for="bg_color">Hintergrundfarbe</label>
-                <input type="color" id="bg_color" name="bg_color" value="<?= escape($settings['bg_color'] ?? '#ffffff') ?>">
+                <input type="color" id="bg_color" name="bg_color" value="<?= escape($settings['bg_color'] ?? '#f5f5f5') ?>">
             </div>
             <div class="form-group">
                 <label for="text_color">Textfarbe</label>
-                <input type="color" id="text_color" name="text_color" value="<?= escape($settings['text_color'] ?? '#333333') ?>">
+                <input type="color" id="text_color" name="text_color" value="<?= escape($settings['text_color'] ?? '#1a1a1a') ?>">
             </div>
         </div>
 
@@ -758,9 +817,7 @@ function show_settings(): void {
 
 function handle_settings_save(): void {
     require_admin();
-    if (!verify_csrf($_POST['csrf_token'] ?? '')) {
-        redirect('/admin.php?action=settings');
-    }
+    if (!verify_csrf($_POST['csrf_token'] ?? '')) redirect('/admin.php?action=settings');
 
     $db = get_db();
     $allowedKeys = ['site_name', 'site_subtitle', 'footer_text', 'homepage_slug', 'primary_color', 'secondary_color', 'accent_color', 'bg_color', 'text_color'];
@@ -768,10 +825,7 @@ function handle_settings_save(): void {
     foreach ($allowedKeys as $key) {
         if (isset($_POST[$key])) {
             $value = trim($_POST[$key]);
-            // Validate color values
-            if (str_contains($key, 'color') && !preg_match('/^#[0-9a-fA-F]{6}$/', $value)) {
-                continue;
-            }
+            if (str_contains($key, 'color') && !validate_color($value)) continue;
             $stmt = $db->prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (:key, :value)");
             $stmt->bindValue(':key', $key, SQLITE3_TEXT);
             $stmt->bindValue(':value', $value, SQLITE3_TEXT);

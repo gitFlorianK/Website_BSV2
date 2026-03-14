@@ -1,7 +1,7 @@
     </main>
     <footer class="site-footer">
         <div class="footer-inner">
-            <p><?= $settings['footer_text'] ?? '' ?></p>
+            <p><?= escape($settings['footer_text'] ?? '') ?></p>
             <nav class="footer-nav">
                 <a href="/impressum">Impressum</a>
                 <a href="/datenschutz">Datenschutzerklärung</a>

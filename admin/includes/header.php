@@ -1,6 +1,13 @@
 <?php
+send_security_headers();
 $settings = get_all_settings();
 $currentSection = $currentSection ?? 'dashboard';
+
+$colors = [
+    'primary' => validate_color($settings['primary_color'] ?? '') ? $settings['primary_color'] : '#1a2744',
+    'secondary' => validate_color($settings['secondary_color'] ?? '') ? $settings['secondary_color'] : '#0f1b33',
+    'accent' => validate_color($settings['accent_color'] ?? '') ? $settings['accent_color'] : '#f5920a',
+];
 ?>
 <!DOCTYPE html>
 <html lang="de">
@@ -10,16 +17,16 @@ $currentSection = $currentSection ?? 'dashboard';
     <title>Admin – <?= escape($settings['site_name'] ?? 'CMS') ?></title>
     <style>
         :root {
-            --primary: <?= escape($settings['primary_color'] ?? '#2e7d32') ?>;
-            --secondary: <?= escape($settings['secondary_color'] ?? '#1b5e20') ?>;
-            --accent: <?= escape($settings['accent_color'] ?? '#ff8f00') ?>;
+            --primary: <?= $colors['primary'] ?>;
+            --secondary: <?= $colors['secondary'] ?>;
+            --accent: <?= $colors['accent'] ?>;
             --bg: #f0f2f5;
             --text: #333;
         }
     </style>
     <link rel="stylesheet" href="/assets/css/style.css">
-    <link href="https://cdn.jsdelivr.net/npm/quill@2.0.3/dist/quill.snow.css" rel="stylesheet">
-    <script src="https://cdn.jsdelivr.net/npm/quill@2.0.3/dist/quill.js"></script>
+    <link href="https://cdn.jsdelivr.net/npm/quill@2.0.3/dist/quill.snow.css" rel="stylesheet" crossorigin="anonymous">
+    <script src="https://cdn.jsdelivr.net/npm/quill@2.0.3/dist/quill.js" crossorigin="anonymous"></script>
 </head>
 <body>
     <div class="admin-layout">

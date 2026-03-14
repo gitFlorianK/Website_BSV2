@@ -4,7 +4,6 @@ require_once __DIR__ . '/includes/functions.php';
 $slug = trim($_GET['page'] ?? '', '/');
 $slug = preg_replace('/[^a-z0-9\-]/', '', $slug);
 
-// Wenn kein Slug angegeben, Startseite aus Einstellungen oder erste Seite laden
 if (empty($slug)) {
     $homepageSlug = get_setting('homepage_slug');
     if ($homepageSlug) {
@@ -31,6 +30,11 @@ if (!$page) {
 $pageTitle = $page['title'] . ' – ' . get_setting('site_name');
 $currentSlug = $slug;
 $layout = $page['layout'] ?? 'default';
+// Content bei Ausgabe nochmals sanitizen (Defense-in-Depth)
+$safeContent = sanitize_html($page['content']);
+
+$allowedLayouts = ['default', 'hero', 'two-column', 'full-width'];
+if (!in_array($layout, $allowedLayouts)) $layout = 'default';
 
 require __DIR__ . '/includes/header.php';
 ?>
@@ -44,21 +48,22 @@ require __DIR__ . '/includes/header.php';
     </section>
     <div class="container">
         <article class="page-content">
-            <?= $page['content'] ?>
+            <?= $safeContent ?>
         </article>
     </div>
 
 <?php elseif ($layout === 'two-column'): ?>
     <div class="container layout-two-column">
         <article class="page-content content-main">
-            <?= $page['content'] ?>
+            <?= $safeContent ?>
         </article>
         <aside class="content-sidebar">
             <h3>Navigation</h3>
             <?php
-            $menuPages = get_menu_pages();
-            foreach ($menuPages as $mp) {
-                if ($mp['parent_id'] == $page['parent_id'] || $mp['parent_id'] == $page['id']) {
+            $sidebarPages = get_menu_pages();
+            foreach ($sidebarPages as $mp) {
+                $mpPid = $mp['parent_id'] !== null ? (int)$mp['parent_id'] : null;
+                if ($mpPid === (int)($page['parent_id'] ?? 0) || $mpPid === (int)$page['id']) {
                     echo '<a href="/' . escape($mp['slug']) . '">' . escape($mp['title']) . '</a><br>';
                 }
             }
@@ -69,7 +74,7 @@ require __DIR__ . '/includes/header.php';
 <?php elseif ($layout === 'full-width'): ?>
     <div class="full-width">
         <article class="page-content">
-            <?= $page['content'] ?>
+            <?= $safeContent ?>
         </article>
     </div>
 
@@ -77,7 +82,7 @@ require __DIR__ . '/includes/header.php';
     <div class="container">
         <h1 class="page-title"><?= escape($page['title']) ?></h1>
         <article class="page-content">
-            <?= $page['content'] ?>
+            <?= $safeContent ?>
         </article>
     </div>
 <?php endif; ?>

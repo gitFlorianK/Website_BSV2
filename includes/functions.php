@@ -42,7 +42,8 @@ function get_menu_pages(): array {
 function build_menu_tree(array $pages, ?int $parentId = null): array {
     $tree = [];
     foreach ($pages as $page) {
-        if ($page['parent_id'] == $parentId) {
+        $pid = $page['parent_id'] !== null ? (int)$page['parent_id'] : null;
+        if ($pid === $parentId) {
             $children = build_menu_tree($pages, (int)$page['id']);
             $page['children'] = $children;
             $tree[] = $page;
@@ -68,7 +69,40 @@ function render_menu(array $tree, string $currentSlug = '', bool $isSubmenu = fa
     return $html;
 }
 
+// Brute-Force-Schutz
+function check_login_allowed(string $ip): bool {
+    $db = get_db();
+    // Alte Einträge bereinigen
+    $db->exec("DELETE FROM login_attempts WHERE attempted_at < datetime('now', '-" . LOGIN_LOCKOUT_SECONDS . " seconds')");
+
+    $stmt = $db->prepare("SELECT COUNT(*) FROM login_attempts WHERE ip = :ip");
+    $stmt->bindValue(':ip', $ip, SQLITE3_TEXT);
+    return $stmt->execute()->fetchArray()[0] < MAX_LOGIN_ATTEMPTS;
+}
+
+function record_login_attempt(string $ip): void {
+    $db = get_db();
+    $stmt = $db->prepare("INSERT INTO login_attempts (ip) VALUES (:ip)");
+    $stmt->bindValue(':ip', $ip, SQLITE3_TEXT);
+    $stmt->execute();
+}
+
+function clear_login_attempts(string $ip): void {
+    $db = get_db();
+    $stmt = $db->prepare("DELETE FROM login_attempts WHERE ip = :ip");
+    $stmt->bindValue(':ip', $ip, SQLITE3_TEXT);
+    $stmt->execute();
+}
+
 function resize_image(string $sourcePath, string $destPath, int $maxWidth = MAX_IMAGE_WIDTH, int $maxHeight = MAX_IMAGE_HEIGHT): bool {
+    if (!function_exists('imagecreatefromjpeg')) {
+        // GD nicht verfügbar – Datei nur kopieren
+        if ($sourcePath !== $destPath) {
+            return copy($sourcePath, $destPath);
+        }
+        return true;
+    }
+
     $info = getimagesize($sourcePath);
     if (!$info) return false;
 
@@ -76,7 +110,6 @@ function resize_image(string $sourcePath, string $destPath, int $maxWidth = MAX_
     $origWidth = $info[0];
     $origHeight = $info[1];
 
-    // Nur verkleinern, nicht vergrößern
     if ($origWidth <= $maxWidth && $origHeight <= $maxHeight) {
         if ($sourcePath !== $destPath) {
             return copy($sourcePath, $destPath);
@@ -100,7 +133,6 @@ function resize_image(string $sourcePath, string $destPath, int $maxWidth = MAX_
 
     $dest = imagecreatetruecolor($newWidth, $newHeight);
 
-    // Transparenz für PNG und GIF
     if (in_array($mime, ['image/png', 'image/gif'])) {
         imagealphablending($dest, false);
         imagesavealpha($dest, true);
@@ -117,9 +149,6 @@ function resize_image(string $sourcePath, string $destPath, int $maxWidth = MAX_
         'image/webp' => imagewebp($dest, $destPath, 85),
         default => false,
     };
-
-    imagedestroy($source);
-    imagedestroy($dest);
 
     return $result;
 }

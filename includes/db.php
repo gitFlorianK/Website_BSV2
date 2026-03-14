@@ -13,6 +13,10 @@ function get_db(): SQLite3 {
 }
 
 function init_db(): void {
+    // Nur einmal initialisieren (Lock-Datei als Marker)
+    $lockFile = DATA_PATH . '/.initialized';
+    if (file_exists($lockFile) && file_exists(DB_FILE)) return;
+
     $db = get_db();
 
     $db->exec("
@@ -54,15 +58,29 @@ function init_db(): void {
             uploaded_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (uploaded_by) REFERENCES users(id)
         );
+
+        CREATE TABLE IF NOT EXISTS login_attempts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ip TEXT NOT NULL,
+            attempted_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
     ");
 
-    // Standardbenutzer anlegen falls keiner existiert
+    // Standardbenutzer mit zufälligem Passwort
     $result = $db->querySingle("SELECT COUNT(*) FROM users");
     if ($result == 0) {
-        $hash = password_hash('admin123', PASSWORD_DEFAULT);
+        $initialPassword = bin2hex(random_bytes(6)); // 12 Zeichen
+        $hash = password_hash($initialPassword, PASSWORD_DEFAULT);
         $stmt = $db->prepare("INSERT INTO users (username, password, role) VALUES ('admin', :pw, 'admin')");
         $stmt->bindValue(':pw', $hash, SQLITE3_TEXT);
         $stmt->execute();
+
+        // Passwort in temporäre Datei schreiben (einmalig lesbar)
+        file_put_contents(DATA_PATH . '/initial_password.txt',
+            "Admin-Zugangsdaten (bitte nach dem ersten Login loeschen!):\n" .
+            "Benutzer: admin\n" .
+            "Passwort: $initialPassword\n"
+        );
     }
 
     // Standardeinstellungen
@@ -106,6 +124,8 @@ function init_db(): void {
             $stmt->reset();
         }
     }
+
+    touch($lockFile);
 }
 
 init_db();
