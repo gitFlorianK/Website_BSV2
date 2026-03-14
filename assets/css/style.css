@@ -42,8 +42,17 @@ img { max-width: 100%; height: auto; }
     height: 64px;
 }
 
-.site-logo { color: #fff; font-weight: 700; font-size: 1.25rem; }
+.site-logo {
+    color: #fff;
+    font-weight: 700;
+    font-size: 1.25rem;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
 .site-logo:hover { color: #fff; opacity: 0.9; }
+
+.logo-img { height: 44px; width: auto; }
 
 .site-name { letter-spacing: 0.02em; }
 
@@ -117,17 +126,6 @@ img { max-width: 100%; height: auto; }
 .hamburger::before, .hamburger::after { content: ''; position: absolute; left: 0; }
 .hamburger::before { top: -7px; }
 .hamburger::after { top: 7px; }
-
-/* === Hero === */
-.hero {
-    background: linear-gradient(135deg, var(--primary), var(--secondary));
-    color: #fff;
-    text-align: center;
-    padding: 5rem 1.5rem;
-}
-
-.hero h1 { font-size: 2.5rem; margin-bottom: 0.5rem; }
-.hero-subtitle { font-size: 1.2rem; opacity: 0.9; }
 
 /* === Content === */
 .site-main { flex: 1; }
@@ -386,6 +384,120 @@ input[type="color"] {
     cursor: pointer;
 }
 
+/* === Hero mit Headerbild === */
+.hero {
+    background: linear-gradient(135deg, var(--primary), var(--secondary));
+    color: #fff;
+    text-align: center;
+    padding: 4rem 1.5rem;
+    position: relative;
+    overflow: hidden;
+}
+
+.hero::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: url('/uploads/top_1.jpg') center/cover no-repeat;
+    opacity: 0.15;
+}
+
+.hero h1 { font-size: 2.5rem; margin-bottom: 0.5rem; position: relative; }
+.hero-subtitle { font-size: 1.2rem; opacity: 0.9; position: relative; }
+
+/* === Vorstand-Grid === */
+.vorstand-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 2rem;
+    margin: 1.5rem 0 2rem;
+}
+
+.vorstand-card {
+    background: #fff;
+    border-radius: 12px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+    text-align: center;
+    padding: 2rem 1.5rem;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.vorstand-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+}
+
+.vorstand-card img {
+    width: 140px;
+    height: 140px;
+    border-radius: 50%;
+    object-fit: cover;
+    margin-bottom: 1rem;
+    border: 4px solid var(--accent);
+}
+
+.vorstand-card h3 {
+    font-size: 1.15rem;
+    margin-bottom: 0.25rem;
+    color: var(--secondary);
+}
+
+.vorstand-rolle {
+    color: var(--accent);
+    font-weight: 600;
+    font-size: 0.9rem;
+    margin-bottom: 0.5rem;
+}
+
+/* === Info-Karten === */
+.info-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 1.5rem;
+    margin: 1.5rem 0;
+}
+
+.info-card {
+    background: #fff;
+    border-radius: 10px;
+    padding: 1.75rem;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+    border-top: 4px solid var(--accent);
+    transition: transform 0.2s;
+}
+
+.info-card:hover { transform: translateY(-2px); }
+
+.info-card h3 {
+    color: var(--primary);
+    margin-bottom: 0.75rem;
+    font-size: 1.1rem;
+}
+
+.info-card p { font-size: 0.95rem; color: #555; }
+
+/* === Welcome Section === */
+.welcome-section {
+    background: #fff;
+    border-radius: 10px;
+    padding: 2rem;
+    margin-bottom: 2rem;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+}
+
+.welcome-section h2 {
+    color: var(--primary);
+    margin-bottom: 1rem;
+}
+
+/* === Kontakt Layout === */
+.kontakt-layout {
+    background: #fff;
+    border-radius: 10px;
+    padding: 2rem;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+}
+
 /* === Responsive === */
 @media (max-width: 768px) {
     .menu-toggle { display: block; }
@@ -413,6 +525,11 @@ input[type="color"] {
     .hero h1 { font-size: 1.75rem; }
 
     .layout-two-column { grid-template-columns: 1fr; }
+
+    .vorstand-grid { grid-template-columns: 1fr; gap: 1.5rem; }
+    .vorstand-card img { width: 120px; height: 120px; }
+
+    .info-cards { grid-template-columns: 1fr; }
 
     .footer-inner { flex-direction: column; text-align: center; }
 

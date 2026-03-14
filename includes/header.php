@@ -36,6 +36,7 @@ $colors = [
     <header class="site-header">
         <div class="header-inner">
             <a href="/" class="site-logo">
+                <img src="/uploads/bsv_logo_web.png" alt="<?= escape($settings['site_name'] ?? 'Bogensportverein') ?>" class="logo-img">
                 <span class="site-name"><?= escape($settings['site_name'] ?? 'Bogensportverein') ?></span>
             </a>
             <button class="menu-toggle" aria-label="Menü öffnen" aria-expanded="false">
