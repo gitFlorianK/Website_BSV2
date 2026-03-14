@@ -73,7 +73,10 @@ function render_menu(array $tree, string $currentSlug = '', bool $isSubmenu = fa
 function check_login_allowed(string $ip): bool {
     $db = get_db();
     // Alte Einträge bereinigen
-    $db->exec("DELETE FROM login_attempts WHERE attempted_at < datetime('now', '-" . LOGIN_LOCKOUT_SECONDS . " seconds')");
+    $lockout = (int)LOGIN_LOCKOUT_SECONDS;
+    $stmt = $db->prepare("DELETE FROM login_attempts WHERE attempted_at < datetime('now', '-' || :seconds || ' seconds')");
+    $stmt->bindValue(':seconds', $lockout, SQLITE3_INTEGER);
+    $stmt->execute();
 
     $stmt = $db->prepare("SELECT COUNT(*) FROM login_attempts WHERE ip = :ip");
     $stmt->bindValue(':ip', $ip, SQLITE3_TEXT);
@@ -149,6 +152,9 @@ function resize_image(string $sourcePath, string $destPath, int $maxWidth = MAX_
         'image/webp' => imagewebp($dest, $destPath, 85),
         default => false,
     };
+
+    imagedestroy($source);
+    imagedestroy($dest);
 
     return $result;
 }

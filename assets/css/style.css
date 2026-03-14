@@ -213,9 +213,23 @@ img { max-width: 100%; height: auto; }
     transition: background 0.2s;
 }
 
-.admin-nav a:hover, .admin-nav a.active {
+.admin-nav a:hover, .admin-nav a.active,
+.admin-nav-btn:hover {
     background: rgba(255,255,255,0.1);
     color: #fff;
+}
+
+.admin-nav-btn {
+    display: block;
+    width: 100%;
+    text-align: left;
+    background: none;
+    border: none;
+    color: rgba(255,255,255,0.8);
+    padding: 0.6rem 1.5rem;
+    font: inherit;
+    cursor: pointer;
+    transition: background 0.2s;
 }
 
 .admin-content { padding: 2rem; }

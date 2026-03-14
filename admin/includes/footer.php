@@ -1,7 +1,8 @@
         </div>
     </div>
     <script>
-        // Quill Editor initialisieren
+        const CSRF_TOKEN = '<?= csrf_token() ?>';
+
         document.addEventListener('DOMContentLoaded', function() {
             const editorContainer = document.getElementById('quill-editor');
             const hiddenInput = document.getElementById('content-hidden');
@@ -24,10 +25,8 @@
                     }
                 });
 
-                // Vorhandenen Inhalt laden
                 quill.root.innerHTML = hiddenInput.value;
 
-                // Bild-Upload Handler
                 quill.getModule('toolbar').addHandler('image', function() {
                     const input = document.createElement('input');
                     input.type = 'file';
@@ -40,12 +39,15 @@
                         try {
                             const res = await fetch('/admin.php?action=editor_upload', {
                                 method: 'POST',
+                                headers: { 'X-CSRF-Token': CSRF_TOKEN },
                                 body: formData
                             });
                             const data = await res.json();
                             if (data.location) {
                                 const range = quill.getSelection(true);
                                 quill.insertEmbed(range.index, 'image', data.location);
+                            } else if (data.error) {
+                                alert(data.error);
                             }
                         } catch(e) {
                             alert('Upload fehlgeschlagen.');
@@ -54,7 +56,6 @@
                     input.click();
                 });
 
-                // Vor dem Absenden HTML in hidden input übertragen
                 document.querySelector('form').addEventListener('submit', function() {
                     hiddenInput.value = quill.root.innerHTML;
                 });

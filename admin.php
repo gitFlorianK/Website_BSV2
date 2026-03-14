@@ -4,8 +4,9 @@ secure_session_start();
 
 $action = $_GET['action'] ?? 'dashboard';
 
-// --- Logout (sicher) ---
-if ($action === 'logout') {
+// --- Logout (POST mit CSRF) ---
+if ($action === 'logout' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    verify_csrf($_POST['csrf_token'] ?? '');
     $_SESSION = [];
     if (ini_get('session.use_cookies')) {
         setcookie(session_name(), '', time() - 3600, '/');
@@ -53,7 +54,7 @@ match ($action) {
 // LOGIN
 // =============================================
 function show_login(string $error = ''): void {
-    send_security_headers();
+    send_security_headers(true);
     $settings = get_all_settings();
     $colors = [
         'primary' => validate_color($settings['primary_color'] ?? '') ? $settings['primary_color'] : '#1a2744',
@@ -127,6 +128,13 @@ function handle_login(): void {
         $_SESSION['user_id'] = $user['id'];
         $_SESSION['username'] = $user['username'];
         $_SESSION['role'] = $user['role'];
+
+        // Erstpasswort-Datei automatisch löschen nach Login
+        $pwFile = DATA_PATH . '/initial_password.txt';
+        if (file_exists($pwFile)) {
+            unlink($pwFile);
+        }
+
         redirect('/admin.php');
     } else {
         record_login_attempt($ip);
@@ -571,6 +579,14 @@ function handle_editor_upload(): void {
         exit;
     }
 
+    // CSRF-Prüfung via Header (ohne Rotation, da AJAX)
+    $csrfHeader = $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
+    if (!verify_csrf_stateless($csrfHeader)) {
+        http_response_code(403);
+        echo json_encode(['error' => 'Ungültiges Sicherheitstoken.']);
+        exit;
+    }
+
     if (empty($_FILES['file']['tmp_name']) || $_FILES['file']['error'] !== UPLOAD_ERR_OK) {
         echo json_encode(['error' => 'Keine Datei.']);
         exit;
@@ -656,6 +672,8 @@ function show_user_edit(): void {
         <a href="/admin.php?action=users" class="btn btn-accent">Zurück</a>
     </div>
 
+    <?php if (isset($_GET['error'])): ?><div class="alert alert-error"><?= escape($_GET['error']) ?></div><?php endif; ?>
+
     <form method="post" action="/admin.php?action=user_save" style="max-width:500px;">
         <input type="hidden" name="csrf_token" value="<?= csrf_token() ?>">
         <input type="hidden" name="id" value="<?= (int)$user['id'] ?>">
@@ -691,6 +709,11 @@ function handle_user_save(): void {
     $role = in_array($_POST['role'] ?? '', ['admin', 'editor']) ? $_POST['role'] : 'editor';
 
     if (empty($username)) redirect('/admin.php?action=users');
+
+    // Passwort-Mindestlänge serverseitig prüfen
+    if (!empty($password) && mb_strlen($password) < MIN_PASSWORD_LENGTH) {
+        redirect('/admin.php?action=user_edit&id=' . $id . '&error=' . urlencode('Passwort muss mindestens ' . MIN_PASSWORD_LENGTH . ' Zeichen lang sein.'));
+    }
 
     // Benutzername-Eindeutigkeit prüfen
     $stmt = $db->prepare("SELECT id FROM users WHERE username = :u AND id != :id");

@@ -87,7 +87,7 @@ function init_db(): void {
     $defaults = [
         'site_name' => 'BSV 1960 Plauen e.V.',
         'site_subtitle' => 'Bogensportverein 1960 Plauen e.V.',
-        'footer_text' => '&copy; ' . date('Y') . ' Bogensportverein 1960 Plauen e.V.',
+        'footer_text' => '© ' . date('Y') . ' Bogensportverein 1960 Plauen e.V.',
         'primary_color' => '#1a2744',
         'secondary_color' => '#0f1b33',
         'accent_color' => '#f5920a',

@@ -1,5 +1,5 @@
 <?php
-send_security_headers();
+send_security_headers(false);
 $settings = get_all_settings();
 $menuPages = get_menu_pages();
 $menuTree = build_menu_tree($menuPages);

@@ -1,5 +1,5 @@
 <?php
-send_security_headers();
+send_security_headers(true);
 $settings = get_all_settings();
 $currentSection = $currentSection ?? 'dashboard';
 
@@ -39,7 +39,12 @@ $colors = [
                 <li><a href="/admin.php?action=users" <?= $currentSection === 'users' ? 'class="active"' : '' ?>>Benutzer</a></li>
                 <li><a href="/admin.php?action=settings" <?= $currentSection === 'settings' ? 'class="active"' : '' ?>>Einstellungen</a></li>
                 <li><a href="/" target="_blank">Website ansehen</a></li>
-                <li><a href="/admin.php?action=logout">Abmelden</a></li>
+                <li>
+                    <form method="post" action="/admin.php?action=logout" style="margin:0;">
+                        <input type="hidden" name="csrf_token" value="<?= csrf_token() ?>">
+                        <button type="submit" class="admin-nav-btn">Abmelden</button>
+                    </form>
+                </li>
             </ul>
         </aside>
         <div class="admin-content">
